@@ -58,12 +58,15 @@ fkge.c('collision', "2d", {
 })
 
 fkge.c('alien', "draw, collision", {
+	movePixels = 4,
 	onCollision = function (e, o)
-		e.destroy = true
+		if o.name == "bullet" then
+			e.destroy = true
+		end
 	end
 })
 
-fkge.s('alien', function (e, evt)
+fkge.s('alien', function (e)
 	if e.x > 240 then
 		fkge.message('alien-walker', 'turn_left')
 	end
@@ -78,11 +81,13 @@ local function newAlien(name, w, h, c)
 		h = h,
 		color = c,
 	})
-	fkge.s(name, function (e, evt, dt)
+	fkge.s(name, function (e, evt)
 		if evt.move_right then
-			e.x = e.x + 2
+			fkge.anim(e, 'x', e.x + e.movePixels, evt.move_right[1] / 5)
 		elseif evt.move_left then
-			e.x = e.x - 2
+			fkge.anim(e, 'x', e.x - e.movePixels, evt.move_left[1] / 5)
+		elseif evt.go_down then
+			fkge.anim(e, 'y', e.y + e.movePixels, evt.go_down[1] / 5)
 		end
 	end)
 end
@@ -102,36 +107,43 @@ end)
 
 fkge.c('alien-walker', {
 	walkRow = 5,
-	headingRight = true,
-	nextHeadingRight = true,
-	speed = 30,
+	state = "right",
+	delay = 1,
 	tick = 0,
 })
 
-fkge.s('alien-walker', function (e, evt)
-	if evt.turn_right then
-		e.nextHeadingRight = true
-	elseif evt.turn_left then
-		e.nextHeadingRight = false
+fkge.s('alien-walker', function (e, evt, dt)
+	if evt.turn_right and e.state == "left" then
+		e.nextState = "right"
+	elseif evt.turn_left and e.state == "right" then
+		e.nextState = "left"
 	end
 
 	if e.tick > 0 then
-		e.tick = e.tick - 1
+		e.tick = e.tick - dt
 		return
 	end
 
-	if e.headingRight then
-		fkge.message('alien'..e.walkRow, 'move_right')
-	else
-		fkge.message('alien'..e.walkRow, 'move_left')
+	local countDelay = e.delay * fkge.count("alien") / 40
+	if e.state == "right" then
+		fkge.message('alien'..e.walkRow, 'move_right', countDelay)
+	elseif e.state == "left" then
+		fkge.message('alien'..e.walkRow, 'move_left', countDelay)
+	elseif e.state == "down" then
+		fkge.message('alien'..e.walkRow, 'go_down', countDelay)
 	end
 	e.walkRow = e.walkRow - 1
 	if e.walkRow < 1 then
 		e.walkRow = 5
-		e.tick = e.speed
-		e.headingRight = e.nextHeadingRight
+		e.tick = countDelay
+		if e.state == "down" then
+			e.state = e.nextState
+			e.nextState = nil
+		elseif e.nextState then
+			e.state = "down"
+		end
 	else
-		e.tick = 5
+		e.tick = e.delay / 5
 	end
 end)
 
@@ -180,9 +192,14 @@ fkge.s('input', function (e, evt)
 end)
 
 fkge.c('barricade', "draw, collision", {
-	w = 32,
-	h = 32,
+	w = 24,
+	h = 24,
 	color = {5/7, 1, 2/3},
+	onCollision = function (e, o)
+		if o.names.alien then
+			e.destroy = true
+		end
+	end
 })
 
 fkge.s('barricade', function (e, evt)
