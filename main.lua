@@ -19,7 +19,7 @@ fkge.c('color', {
 
 fkge.c('draw', "2d, color")
 
-fkge.c('ship', "draw, input", {
+fkge.c('ship', "draw, input, collision", {
 	w = 16,
 	h = 16,
 	pressedLeft = false,
@@ -27,6 +27,10 @@ fkge.c('ship', "draw, input", {
 	pressedFire = false,
 	joy = 'center',
 	fireDelta = 0,
+	onHit = function (e, o)
+		print("hit ship")
+		e.color = {1, 0, 0}
+	end
 })
 
 fkge.s('ship', function (e, _, dt)
@@ -42,7 +46,7 @@ fkge.s('ship', function (e, _, dt)
 	if e.x < 16 then
 		e.x = 16
 	end
-	if e.pressedFire and e.fireDelta <= 0 then
+	if e.pressedFire and e.fireDelta <= 0 and fkge.count('bullet') < 2 then
 		fkge.e('bullet').attr {x = e.x, y = e.y}
 		e.fireDelta = 0.4
 	end
@@ -75,6 +79,30 @@ fkge.s('alien', function (e)
 	end
 end)
 
+fkge.c('alien-bullet', 'draw, collision', {
+	w = 1,
+	h = 6,
+	color = {0, 1, 0},
+	onCollision = function (e, o)
+		if o.name == "bullet" then
+			e.destroy = true
+			o.destroy = true
+		elseif o.name == "ship" then
+			e.destroy = true
+			o.onHit(o, e)
+		elseif o.name == 'barricade' then
+			e.destroy = true
+		end
+	end,
+})
+
+fkge.s('alien-bullet', function (e)
+	e.y = e.y + 2
+	if e.y > 192 then
+		e.destroy = true
+	end
+end)
+
 local function newAlien(name, w, h, c)
 	fkge.c(name, "alien", {
 		w = w,
@@ -82,12 +110,22 @@ local function newAlien(name, w, h, c)
 		color = c,
 	})
 	fkge.s(name, function (e, evt)
+		local delay = nil
 		if evt.move_right then
-			fkge.anim(e, 'x', e.x + e.movePixels, evt.move_right[1] / 5)
+			delay = evt.move_right[1]
+			fkge.anim(e, 'x', e.x + e.movePixels, delay[1] / 5)
 		elseif evt.move_left then
-			fkge.anim(e, 'x', e.x - e.movePixels, evt.move_left[1] / 5)
+			delay = evt.move_left[1]
+			fkge.anim(e, 'x', e.x - e.movePixels, delay[1] / 5)
 		elseif evt.go_down then
-			fkge.anim(e, 'y', e.y + e.movePixels, evt.go_down[1] / 5)
+			delay = evt.go_down[1]
+			fkge.anim(e, 'y', e.y + e.movePixels, delay[1] / 5)
+		end
+		if delay and math.random() < math.min(15, delay[2]) / 20 then
+			fkge.e('alien-bullet').attr{
+				x = e.x,
+				y = e.y,
+			}
 		end
 	end)
 end
@@ -109,8 +147,39 @@ fkge.c('alien-walker', {
 	walkRow = 5,
 	state = "right",
 	delay = 1,
+	level = 1,
 	tick = 0,
 })
+
+local function gameReset()
+	fkge.each('barricade', function (e)
+		e.destroy = true
+	end)
+	fkge.each('alien', function (e)
+		e.destroy = true
+	end)
+	for i=1, 4 do
+		fkge.e('barricade').attr {
+			x = 51 * i,
+			y = 152,
+		}
+	end
+	for j=1, 5 do
+		for i=1, 8 do
+			fkge.e('alien'..j).attr {
+				x = 24 + i*24,
+				y = 16 + j*16,
+			}
+		end
+	end
+	fkge.each('ship', function (e)
+		e.attr {
+			x = 128,
+			y = 176,
+		}
+	end)
+	fkge.message('alien-walker', 'turn_right')
+end
 
 fkge.s('alien-walker', function (e, evt, dt)
 	if evt.turn_right and e.state == "left" then
@@ -124,15 +193,25 @@ fkge.s('alien-walker', function (e, evt, dt)
 		return
 	end
 
-	local countDelay = e.delay * fkge.count("alien") / 40
+	local count = fkge.count("alien")
+	if count == 0 then
+		gameReset()
+		e.delay = e.delay / 2
+		e.level = e.level + 1
+		return
+	end
+	local countDelay = e.delay * count / 40
 	if e.state == "right" then
-		fkge.message('alien'..e.walkRow, 'move_right', countDelay)
+		fkge.message('alien'..e.walkRow, 'move_right', {countDelay, e.level})
 	elseif e.state == "left" then
-		fkge.message('alien'..e.walkRow, 'move_left', countDelay)
+		fkge.message('alien'..e.walkRow, 'move_left', {countDelay, e.level})
 	elseif e.state == "down" then
-		fkge.message('alien'..e.walkRow, 'go_down', countDelay)
+		fkge.message('alien'..e.walkRow, 'go_down', {countDelay, e.level})
 	end
 	e.walkRow = e.walkRow - 1
+	while fkge.count('alien'..e.walkRow) == 0 and e.walkRow > 0 do
+		e.walkRow = e.walkRow - 1
+	end
 	if e.walkRow < 1 then
 		e.walkRow = 5
 		e.tick = countDelay
@@ -166,6 +245,8 @@ fkge.s('input', function (e, evt)
 			e.pressedRight = false
 		elseif k == 'space' then
 			e.pressedFire = false
+		--elseif k == 'r' then
+		--	gameReset()
 		end
 	end
 	for _, j in ipairs(evt.joystickaxis or {}) do
@@ -206,16 +287,18 @@ fkge.s('barricade', function (e, evt)
 end)
 
 fkge.c('bullet', "draw, collision", {
-	w = 4,
-	h = 8,
+	w = 2,
+	h = 6,
 	color = {1, 1, 1},
 	onCollision = function (e, o)
-		e.destroy = true
+		if o.name ~= 'ship' then
+			e.destroy = true
+		end
 	end,
 })
 
 fkge.s('bullet', function (e, evt)
-	e.y = e.y - 4
+	e.y = e.y - 2
 	if e.y < 0 then
 		e.destroy = true
 	end
@@ -240,25 +323,14 @@ fkge.s('collision', function (e, evt, tick)
 end)
 
 fkge.scene('game', function ()
-	for i=1, 4 do
-		fkge.e('barricade').attr {
-			x = 51 * i,
-			y = 144,
-		}
-	end
-	for j=1, 5 do
-		for i=1, 8 do
-			fkge.e('alien'..j).attr {
-				x = 24 + i*24,
-				y = 16 + j*16,
-			}
-		end
-	end
+	fkge.wipe()
+	fkge.e('ship')
 	fkge.e('alien-walker')
-	fkge.e('ship').attr {
-		x = 128,
-		y = 176,
-	}
+	gameReset()
 end)
 
-fkge.scene'game'
+fkge.scene('load', function ()
+	fkge.scene'game'
+end)
+
+fkge.scene'load'
